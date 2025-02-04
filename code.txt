@@ -4,6 +4,10 @@
 BluetoothSerial BTSerial; // Create Bluetooth Serial object
 
 int t = 4095;
+double k = 0.0313;
+// Base motor speed
+int baseSpeed = 150;
+int limMax = 68;
 
 
 byte channel_adress_table[14][4] = {
@@ -12,17 +16,6 @@ byte channel_adress_table[14][4] = {
   { 1, 0, 0, 0 }, { 1, 0, 0, 1 }, { 1, 0, 1, 0 }, { 1, 0, 1, 1 },
   { 1, 1, 0, 0 }, { 1, 1, 0, 1 }
 };
-
-// #define BUTTON_PIN 12  // Button connected to GPIO 12
-
-// bool buttonFlag = false;  
-// bool isCalibrated = false;  // Flag to ensure calibration happens first
-
-// void IRAM_ATTR handleButtonPress() {
-//     if (isCalibrated) {  
-//         buttonFlag = true;  // Allow movement only after calibration
-//     }
-// }
 
 // Sensor variables
 int max_values[14] = {0};
@@ -46,14 +39,11 @@ int threshold[14] = {0};
 #define STBY 26   
 
 // PID constants
-double Kp = 5.65, Ki = 0, Kd = 56.5;
+double Kp = 3, Ki = 0, Kd = 15;
 
 // PID variables
 float lastError = 0, integral = 0;
 const float integralLimit = 1000.0; 
-
-// Base motor speed
-int baseSpeed = 200;
 
 void setup() {
     Serial.begin(115200);
@@ -93,27 +83,15 @@ void setup() {
 
     setMotorSpeeds(0, 0);
     delay(2000);
-    // isCalibrated = true;  // Mark calibration as complete
-
-    // pinMode(BUTTON_PIN, INPUT_PULLDOWN);  
-    // attachInterrupt(BUTTON_PIN, handleButtonPress, RISING);
 }
 
 void loop() {
+    
     // Handle Bluetooth commands
     if (BTSerial.available()) {
         String command = BTSerial.readStringUntil('\n');
         processBluetoothCommand(command);
     }
-
-    // if (!isCalibrated) return;  // Ensure calibration is done before proceeding
-
-    // if (buttonFlag) {  
-    //     Serial.println("Button Pressed! Starting LFR...");
-    //     buttonFlag = false;  // Reset flag after detecting press
-    // } else {
-    //     return;  // Do nothing until button is pressed
-    // }
 
     // Line following logic
     int position = readLine();
@@ -124,7 +102,9 @@ void loop() {
     }
 
     int error = position - 6500;
-    error = map(error, -6500, 6500, -255, 255);
+    double speed = baseSpeed * exp(-k * (error / 1000.0) * (error / 1000.0));
+    double lim = limMax * exp(k * (error / 1000.0) * (error / 1000.0));
+    error = map(error, -6500, 6500, -lim, lim);
 
     float proportional = error;
     integral += error;
@@ -133,8 +113,8 @@ void loop() {
     float correction = (Kp * proportional) + (Ki * integral) + (Kd * derivative);
     lastError = error;
 
-    int leftSpeed = constrain(baseSpeed + correction, -225, 225);
-    int rightSpeed = constrain(baseSpeed - correction, -225, 225);
+    int leftSpeed = constrain(speed + correction, -255, 255);
+    int rightSpeed = constrain(speed - correction, -255, 255);
 
     setMotorSpeeds(leftSpeed, rightSpeed);
 }
@@ -214,8 +194,11 @@ void processBluetoothCommand(String command) {
     } else if (command.startsWith("Kd=")) {
         Kd = command.substring(3).toFloat();
         BTSerial.printf("Updated Kd to %.2f\n", Kd);
+    } else if (command.startsWith("baseSpeed=")) {
+        baseSpeed = command.substring(10).toInt();
+        BTSerial.printf("Updated baseSpeed to %d\n", baseSpeed);
     } else {
-        BTSerial.println("Invalid command. Use Kp=, Ki=, or Kd=");
+        BTSerial.println("Invalid command. Use Kp=, Ki=, Kd=, or baseSpeed=");
     }
 }
 
