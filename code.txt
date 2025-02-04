@@ -5,10 +5,10 @@ BluetoothSerial BTSerial; // Create Bluetooth Serial object
 
 int t = 4095;
 double k = 0.0313;
+double k1 = 0.05;
 // Base motor speed
-int baseSpeed = 150;
+int baseSpeed = 110;
 int limMax = 68;
-
 
 byte channel_adress_table[14][4] = {
   { 0, 0, 0, 0 }, { 0, 0, 0, 1 }, { 0, 0, 1, 0 }, { 0, 0, 1, 1 },
@@ -39,7 +39,9 @@ int threshold[14] = {0};
 #define STBY 26   
 
 // PID constants
-double Kp = 3, Ki = 0, Kd = 15;
+double KpMax = 6, Ki = 0, KdMax = 5;
+double Kp;
+double Kd;
 
 // PID variables
 float lastError = 0, integral = 0;
@@ -104,6 +106,8 @@ void loop() {
     int error = position - 6500;
     double speed = baseSpeed * exp(-k * (error / 1000.0) * (error / 1000.0));
     double lim = limMax * exp(k * (error / 1000.0) * (error / 1000.0));
+    Kp = KpMax * exp(k1 * (error / 1000.0) * (error / 1000.0));
+    Kd = KdMax * exp(k1 * (error / 1000.0) * (error / 1000.0));
     error = map(error, -6500, 6500, -lim, lim);
 
     float proportional = error;
@@ -186,19 +190,22 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed) {
 void processBluetoothCommand(String command) {
     command.trim();
     if (command.startsWith("Kp=")) {
-        Kp = command.substring(3).toFloat();
+        KpMax = command.substring(3).toFloat();
         BTSerial.printf("Updated Kp to %.2f\n", Kp);
     } else if (command.startsWith("Ki=")) {
         Ki = command.substring(3).toFloat();
         BTSerial.printf("Updated Ki to %.2f\n", Ki);
     } else if (command.startsWith("Kd=")) {
-        Kd = command.substring(3).toFloat();
+        KdMax = command.substring(3).toFloat();
         BTSerial.printf("Updated Kd to %.2f\n", Kd);
     } else if (command.startsWith("baseSpeed=")) {
         baseSpeed = command.substring(10).toInt();
         BTSerial.printf("Updated baseSpeed to %d\n", baseSpeed);
+    } else if (command.startsWith("k=")) {
+        k = command.substring(2).toFloat();
+        BTSerial.printf("Updated k to %.2f\n", k);
     } else {
-        BTSerial.println("Invalid command. Use Kp=, Ki=, Kd=, or baseSpeed=");
+        BTSerial.println("Invalid command. Use Kp=, Ki=, Kd=, baseSpeed=, or k=");
     }
 }
 
