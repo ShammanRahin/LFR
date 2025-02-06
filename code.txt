@@ -2,12 +2,11 @@
 #include "BluetoothSerial.h" // Include Bluetooth Serial library
 
 BluetoothSerial BTSerial; // Create Bluetooth Serial object
-int s=160;
+int s = 180;
 int t = 4095;
-int lim = 255;
-double k = 0.01;
-int k1 = 0.0523;
-int Bspeed = s;
+int lim = 250;
+double k = 0.03;
+double c = 0.03;
 byte channel_adress_table[14][4] = {
   { 0, 0, 0, 0 }, { 0, 0, 0, 1 }, { 0, 0, 1, 0 }, { 0, 0, 1, 1 },
   { 0, 1, 0, 0 }, { 0, 1, 0, 1 }, { 0, 1, 1, 0 }, { 0, 1, 1, 1 },
@@ -36,17 +35,11 @@ int threshold[14] = {0};
 #define STBY 26   
 
 // PID constants
-double Kp = 1, Ki = 0, Kd = 5;
+double Kp = 1, Ki = 0, Kd = 0;
 
 // PID variables
 float lastError = 0, integral = 0;
 const float integralLimit = 500.0;
-
-// Average error variables
-float averageError = 0; // Stores the average error over 500ms
-unsigned long lastResetTime = 0; // Tracks the last time the average was calculated
-float errorSum = 0; // Sum of errors over 500ms
-int errorCount = 0; // Number of errors added to the sum
 
 void setup() {
     Serial.begin(115200);
@@ -103,18 +96,8 @@ void loop() {
         return;
     }
     
-    int error = position - 6500;
-
-    // Add the current error to the sum
-    errorSum += error;
-    errorCount++;
-
-    // Calculate the running average error
-    averageError = errorSum / errorCount;
-
-    // Use the raw error for further calculations (as in your original code)
-    double speed = Bspeed * exp(-k * ((averageError / 1000) * (averageError / 1000)));
-    double Kpa = Kp * exp(k1 * ((error / 1000) * (error / 1000)));
+    double error = position - 6500;
+    double Kpa = Kp * exp(c * ((error / 1000) * (error / 1000)));
     error = map(error, -6500, 6500, -lim, lim);
     float proportional = error;
     integral += error;
@@ -123,8 +106,8 @@ void loop() {
     float correction = (Kpa * proportional) + (Ki * integral) + (Kd * derivative);
     lastError = error;
 
-    int leftSpeed = constrain(speed + correction, -255, 255);
-    int rightSpeed = constrain(speed - correction, -255, 255);
+    int leftSpeed = constrain(s+ correction, -250, 250);
+    int rightSpeed = constrain(s - correction, -250, 250);
 
     setMotorSpeeds(leftSpeed, rightSpeed);
 }
@@ -150,11 +133,11 @@ int readLine() {
   if (overThresholdCount > 12)
     return -2;
 
-  if (overThresholdCount > 2) {
+  if (overThresholdCount > 5) {
     sums = 0;
     active = 0;
-    int centerStart = 6;
-    int centerEnd = 7;
+    int centerStart = 5;
+    int centerEnd = 8;
 
     for (int i = centerStart; i <= centerEnd; i++) {
       // Set MUX channel address
@@ -175,7 +158,7 @@ int readLine() {
     if (active == 0) {
     if (noLineStart == 0) {
       noLineStart = millis(); // Start the timer
-    } else if (millis() - noLineStart >= 150) {
+    } else if (millis() - noLineStart >= 50) {
       return -1; // Return -1 if active == 0 for 500ms
     }
   } else {
@@ -198,24 +181,42 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed) {
 void processBluetoothCommand(String command) {
     command.trim(); // Remove any leading or trailing whitespace
 
-    // Check if the command starts with 'p', 'i', 'd', 'b', or 'k' and parse the value
-    if (command.startsWith("p")) {
-        Kp = command.substring(1).toFloat(); // Extract value after 'p'
-        BTSerial.printf("Updated Kp to %.2f\n", Kp);
-    } else if (command.startsWith("i")) {
-        Ki = command.substring(1).toFloat(); // Extract value after 'i'
-        BTSerial.printf("Updated Ki to %.2f\n", Ki);
-    } else if (command.startsWith("d")) {
-        Kd = command.substring(1).toFloat(); // Extract value after 'd'
-        BTSerial.printf("Updated Kd to %.2f\n", Kd);
-    } else if (command.startsWith("s")) {
-        s = command.substring(1).toInt(); // Extract value after 'b'
-        BTSerial.printf("Updated Bspeed to %d\n", Bspeed);
-    } else if (command.startsWith("k")) {
-        k = command.substring(1).toFloat(); // Extract value after 'k'
-        BTSerial.printf("Updated k to %.2f\n", k);
-    } else {
-        BTSerial.println("Invalid command. Use p<value>, i<value>, d<value>, b<value>, or k<value>");
+    if (command.length() < 1) {
+        BTSerial.println("Invalid command. Use p<value>, i<value>, d<value>, s<value>, k<value>, or c<value>");
+        return;
+    }
+
+    char cmd = command.charAt(0);
+    float value = command.substring(1).toFloat();
+
+    switch (cmd) {
+        case 'p':
+            Kp = value;
+            BTSerial.printf("Updated Kp to %.2f\n", Kp);
+            break;
+        case 'i':
+            Ki = value;
+            BTSerial.printf("Updated Ki to %.2f\n", Ki);
+            break;
+        case 'd':
+            Kd = value;
+            BTSerial.printf("Updated Kd to %.2f\n", Kd);
+            break;
+        case 's':
+            s = value;
+            BTSerial.printf("Updated Bspeed to %d\n", s);
+            break;
+        case 'k':
+            k = value;
+            BTSerial.printf("Updated k to %.2f\n", k);
+            break;
+        case 'c':
+            c = value;
+            BTSerial.printf("Updated c to %.2f\n", c);
+            break;
+        default:
+            BTSerial.println("Invalid command. Use p<value>, i<value>, d<value>, s<value>, k<value>, or c<value>");
+            break;
     }
 }
 
